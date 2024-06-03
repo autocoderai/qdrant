@@ -20,5 +20,3 @@ mod segment_on_disk_snapshot;
 mod segment_tests;
 mod sparse_discover_test;
 mod sparse_vector_index_search_tests;
-pub mod utils;
-pub mod glove100_gpu_test;
