@@ -29,6 +29,8 @@ use crate::data_types::vectors::{QueryVector, Vector, VectorRef};
 use crate::id_tracker::IdTrackerSS;
 use crate::index::hnsw_index::build_condition_checker::BuildConditionChecker;
 use crate::index::hnsw_index::config::HnswGraphConfig;
+use crate::index::hnsw_index::gpu::gpu_graph_builder::GpuGraphBuilder;
+use crate::index::hnsw_index::gpu::{get_gpu_indexing, GPU_GROUPS_COUNT};
 use crate::index::hnsw_index::graph_layers::GraphLayers;
 use crate::index::hnsw_index::graph_layers_builder::GraphLayersBuilder;
 use crate::index::hnsw_index::point_scorer::FilteredScorer;
