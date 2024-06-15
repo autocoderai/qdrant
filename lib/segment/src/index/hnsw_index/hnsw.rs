@@ -238,7 +238,6 @@ impl<TGraphLinks: GraphLinks> HNSWIndex<TGraphLinks> {
 
         // Build main index graph
         let mut rng = thread_rng();
-        let gpu_indexing = get_gpu_indexing();
         let deleted_bitslice = vector_storage.deleted_vector_bitslice();
 
         debug!("building HNSW for {total_vector_count} vectors with {num_cpus} CPUs");
@@ -284,83 +283,168 @@ impl<TGraphLinks: GraphLinks> HNSWIndex<TGraphLinks> {
             })
             .build()?;
 
-        if !gpu_indexing {
-            for vector_id in id_tracker.iter_ids_excluding(deleted_bitslice) {
-                check_process_stopped(stopped)?;
-                let level = graph_layers_builder.get_random_layer(&mut rng);
-                graph_layers_builder.set_levels(vector_id, level);
-            }
+        let use_gpu = get_gpu_indexing();
+        for vector_id in id_tracker.iter_ids_excluding(deleted_bitslice) {
+            check_process_stopped(stopped)?;
+            let level = graph_layers_builder.get_random_layer(&mut rng);
+            graph_layers_builder.set_levels(vector_id, level);
         }
 
         let mut indexed_vectors = 0;
 
-        if config.m > 0 && !gpu_indexing {
+        if self.config.m > 0 {
+            let timer = std::time::Instant::now();
+
+            let single_threaded_threshold = if !use_gpu {
+                SINGLE_THREADED_HNSW_BUILD_THRESHOLD
+            } else {
+                0
+            };
+
             let mut ids_iterator = id_tracker.iter_ids_excluding(deleted_bitslice);
 
             let first_few_ids: Vec<_> = ids_iterator
                 .by_ref()
-                .take(SINGLE_THREADED_HNSW_BUILD_THRESHOLD)
+                .take(single_threaded_threshold)
                 .collect();
             let ids: Vec<_> = ids_iterator.collect();
 
             indexed_vectors = ids.len() + first_few_ids.len();
 
-            let insert_point = |vector_id| {
-                check_process_stopped(stopped)?;
-                let vector = vector_storage.get_vector(vector_id);
-                let vector = vector.as_vec_ref().into();
-                let raw_scorer = if let Some(quantized_storage) = quantized_vectors.as_ref() {
-                    quantized_storage.raw_scorer(
-                        vector,
-                        id_tracker.deleted_point_bitslice(),
-                        vector_storage.deleted_vector_bitslice(),
-                        stopped,
-                    )
-                } else {
-                    new_raw_scorer(vector, vector_storage, id_tracker.deleted_point_bitslice())
-                }?;
-                let points_scorer = FilteredScorer::new(raw_scorer.as_ref(), None);
+            if use_gpu {
+                graph_layers_builder = GpuGraphBuilder::build(
+                    &pool,
+                    &graph_layers_builder,
+                    None,
+                    get_gpu_max_groups_count(
+                        vector_storage.available_size_in_bytes(),
+                        total_vector_count,
+                        self.config.m0,
+                        self.config.ef_construct,
+                    ),
+                    &vector_storage,
+                    num_entries,
+                    get_gpu_force_half_precision(),
+                    SINGLE_THREADED_HNSW_BUILD_THRESHOLD,
+                    ids,
+                    |vector_id| {
+                        let vector = vector_storage.get_vector(vector_id);
+                        let vector = vector.as_vec_ref().into();
+                        let raw_scorer = if let Some(quantized_storage) = quantized_vectors.as_ref()
+                        {
+                            quantized_storage.raw_scorer(
+                                vector,
+                                id_tracker.deleted_point_bitslice(),
+                                vector_storage.deleted_vector_bitslice(),
+                                stopped,
+                            )
+                        } else {
+                            new_raw_scorer(
+                                vector,
+                                &vector_storage,
+                                id_tracker.deleted_point_bitslice(),
+                            )
+                        }?;
+                        Ok((raw_scorer, None))
+                    },
+                )?;
+            } else {
+                let insert_point = |vector_id| {
+                    check_process_stopped(stopped)?;
+                    let vector = vector_storage.get_vector(vector_id);
+                    let vector = vector.as_vec_ref().into();
+                    let raw_scorer = if let Some(quantized_storage) = quantized_vectors.as_ref() {
+                        quantized_storage.raw_scorer(
+                            vector,
+                            id_tracker.deleted_point_bitslice(),
+                            vector_storage.deleted_vector_bitslice(),
+                            stopped,
+                        )
+                    } else {
+                        new_raw_scorer(vector, &vector_storage, id_tracker.deleted_point_bitslice())
+                    }?;
+                    let points_scorer = FilteredScorer::new(raw_scorer.as_ref(), None);
 
-                graph_layers_builder.link_new_point(vector_id, points_scorer);
-                Ok::<_, OperationError>(())
-            };
+                    graph_layers_builder.link_new_point(vector_id, points_scorer);
+                    Ok::<_, OperationError>(())
+                };
 
-            for vector_id in first_few_ids {
-                insert_point(vector_id)?;
-            }
+                for vector_id in first_few_ids {
+                    insert_point(vector_id)?;
+                }
 
-            if !ids.is_empty() {
-                pool.install(|| ids.into_par_iter().try_for_each(insert_point))?;
+                if !ids.is_empty() {
+                    pool.install(|| ids.into_par_iter().try_for_each(insert_point))?;
+                }
             }
 
             debug!("finish main graph in time {:?}", timer.elapsed());
-        } else if config.m > 0 && gpu_indexing {
-            let raw_scorer = if let Some(quantized_storage) = vector_storage.quantized_storage()
-            {
-                quantized_storage.raw_scorer(
-                    &vec![],
-                    id_tracker.deleted_point_bitslice(),
-                    vector_storage.deleted_vector_bitslice(),
-                    stopped,
-                )
-            } else {
-                new_raw_scorer(vec![], &vector_storage, id_tracker.deleted_point_bitslice())
-            };
-            let mut gpu_graph_builder = GpuGraphBuilder::new(
-                total_vector_count,
-                self.config.m,
-                self.config.m0,
-                self.config.ef_construct,
-                entry_points_num,
-                raw_scorer,
-                &vector_storage,
-                &mut rng,
-                GPU_THREADS_COUNT,
-            );
-            gpu_graph_builder.build();
-            graph_layers_builder = gpu_graph_builder.into_graph_layers_builder();
         } else {
             debug!("skip building main HNSW graph");
+        }
+
+        let visited_pool = VisitedPool::new();
+        let mut block_filter_list = visited_pool.get(total_vector_count);
+        let visits_iteration = block_filter_list.get_current_iteration_id();
+
+        let payload_index = self.payload_index.borrow();
+        let payload_m = self.config.payload_m.unwrap_or(self.config.m);
+
+        if payload_m > 0 {
+            // Calculate true average number of links per vertex in the HNSW graph
+            // to better estimate percolation threshold
+            let average_links_per_0_level =
+                graph_layers_builder.get_average_connectivity_on_level(0);
+            let average_links_per_0_level_int = (average_links_per_0_level as usize).max(1);
+
+            for (field, _) in payload_index.indexed_fields() {
+                debug!("building additional index for field {}", &field);
+
+                // It is expected, that graph will become disconnected less than
+                // $1/m$ points left.
+                // So blocks larger than $1/m$ are not needed.
+                // We add multiplier for the extra safety.
+                let percolation_multiplier = 4;
+                let max_block_size = if self.config.m > 0 {
+                    total_vector_count / average_links_per_0_level_int * percolation_multiplier
+                } else {
+                    usize::MAX
+                };
+                let min_block_size = indexing_threshold;
+
+                for payload_block in payload_index.payload_blocks(&field, min_block_size) {
+                    check_process_stopped(stopped)?;
+                    if payload_block.cardinality > max_block_size {
+                        continue;
+                    }
+                    // ToDo: reuse graph layer for same payload
+                    let mut additional_graph = GraphLayersBuilder::new_with_params(
+                        total_vector_count,
+                        payload_m,
+                        self.config.payload_m0.unwrap_or(self.config.m0),
+                        self.config.ef_construct,
+                        1,
+                        HNSW_USE_HEURISTIC,
+                        false,
+                    );
+                    self.build_filtered_graph(
+                        &pool,
+                        stopped,
+                        &mut additional_graph,
+                        payload_block.condition,
+                        &mut block_filter_list,
+                    )?;
+                    graph_layers_builder.merge_from_other(additional_graph);
+                }
+            }
+
+            let indexed_payload_vectors = block_filter_list.count_visits_since(visits_iteration);
+
+            debug_assert!(indexed_vectors >= indexed_payload_vectors || self.config.m == 0);
+            indexed_vectors = indexed_vectors.max(indexed_payload_vectors);
+            debug_assert!(indexed_payload_vectors <= total_vector_count);
+        } else {
+            debug!("skip building additional HNSW links");
         }
 
         let visited_pool = VisitedPool::new();
