@@ -31,7 +31,7 @@ use crate::index::hnsw_index::build_condition_checker::BuildConditionChecker;
 use crate::index::hnsw_index::config::HnswGraphConfig;
 use crate::index::hnsw_index::gpu::gpu_graph_builder::GpuGraphBuilder;
 use crate::index::hnsw_index::gpu::{
-    get_gpu_force_half_precision, get_gpu_indexing, get_gpu_max_groups_count,
+    get_gpu_force_half_precision, get_gpu_indexing, get_gpu_max_groups,
 };
 use crate::index::hnsw_index::graph_layers::GraphLayers;
 use crate::index::hnsw_index::graph_layers_builder::GraphLayersBuilder;
