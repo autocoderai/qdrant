@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bincode;
-use bitvec::prelude::{BitSlice, BitVec};
 use common::types::PointOffsetType;
 use itertools::Itertools;
+use memory::mmap_type::{BitSlice, BitVec};
 use parking_lot::RwLock;
 use rand::distributions::Distribution;
 use rocksdb::DB;
