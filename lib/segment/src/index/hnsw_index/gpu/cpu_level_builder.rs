@@ -163,6 +163,7 @@ mod tests {
         check_graph_layers_builders_quality, compare_graph_layers_builders,
         create_gpu_graph_test_data, GpuGraphTestData,
     };
+    use crate::vector_storage::chunked_vector_storage::VectorOffsetType;
 
     fn build_cpu_graph(test: &GpuGraphTestData, threads: usize) -> GraphLayersBuilder {
         let num_vectors = test.graph_layers_builder.links_layers.len();
@@ -195,7 +196,11 @@ mod tests {
                 |_| false,
                 |point_id| {
                     let fake_filter_context = FakeFilterContext {};
-                    let added_vector = test.vector_holder.vectors.get(point_id).to_vec();
+                    let added_vector = test
+                        .vector_holder
+                        .vectors
+                        .get(point_id as VectorOffsetType)
+                        .to_vec();
                     let raw_scorer = test
                         .vector_holder
                         .get_raw_scorer(added_vector.clone())

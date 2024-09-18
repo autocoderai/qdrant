@@ -741,6 +741,7 @@ mod tests {
     use crate::index::hnsw_index::point_scorer::FilteredScorer;
     use crate::spaces::simple::DotProductMetric;
     use crate::types::Distance;
+    use crate::vector_storage::chunked_vector_storage::VectorOffsetType;
     use crate::vector_storage::dense::simple_dense_vector_storage::open_simple_dense_vector_storage;
 
     #[repr(C)]
@@ -791,7 +792,7 @@ mod tests {
         }
         for idx in 0..(num_vectors as PointOffsetType) {
             let fake_filter_context = FakeFilterContext {};
-            let added_vector = vector_holder.vectors.get(idx).to_vec();
+            let added_vector = vector_holder.vectors.get(idx as VectorOffsetType).to_vec();
             let raw_scorer = vector_holder.get_raw_scorer(added_vector.clone()).unwrap();
             let scorer = FilteredScorer::new(raw_scorer.as_ref(), Some(&fake_filter_context));
             graph_layers_builder.link_new_point(idx, scorer);
