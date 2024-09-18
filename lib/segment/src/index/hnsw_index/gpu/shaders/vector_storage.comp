@@ -32,6 +32,18 @@ float dot_u8vec4(u8vec4 a, u8vec4 b) {
 
 #endif
 
+#ifdef VECTOR_STORAGE_ELEMENT_SQ
+
+float dot_u8vec4(u8vec4 a, u8vec4 b) {
+    uint sum = uint(a.x) * uint(b.x) + uint(a.y) * uint(b.y) + uint(a.z) * uint(b.z) + uint(a.w) * uint(b.w);
+    return float(sum);
+}
+
+#define VECTOR_STORAGE_ELEMENT_TYPE u8vec4
+#define VECTOR_STORAGE_SCORE_ELEMENT(a, b) dot_u8vec4(a, b)
+
+#endif
+
 #ifdef VECTOR_STORAGE_ELEMENT_BINARY
 
 // uint = 4 * uint8_t, vec4 analogue for BQ
@@ -60,6 +72,16 @@ VECTOR_STORAGE_DEFINE(0)
 VECTOR_STORAGE_DEFINE(1)
 VECTOR_STORAGE_DEFINE(2)
 VECTOR_STORAGE_DEFINE(3)
+
+// SQ offsets
+#ifdef VECTOR_STORAGE_ELEMENT_SQ
+
+layout(set = VECTOR_STORAGE_LAYOUT_SET, binding = 4) \
+readonly buffer VectorOffsets { \
+    float data[]; \
+} vector_offsets;
+
+#endif
 
 #if DIM / (4 * SUBGROUP_SIZE) > 1
 
@@ -93,6 +115,10 @@ VECTOR_STORAGE_ELEMENT_TYPE target_cache;
 
 #endif
 
+#ifdef VECTOR_STORAGE_ELEMENT_SQ
+float target_offset;
+#endif
+
 void set_target(uint point_id) {
     uint index = (point_id / STORAGES_COUNT) * (DIM / 4) + SUBGROUP_INVOCATION_ID;
     uint storage_index = point_id % STORAGES_COUNT;
@@ -110,6 +136,10 @@ void set_target(uint point_id) {
         VECTOR_STORAGE_SET_TARGET(3);
         break;
     }
+
+#ifdef VECTOR_STORAGE_ELEMENT_SQ
+    target_offset = vector_offsets.data[point_id];
+#endif
 }
 
 float similarity(uint point_id) {
@@ -136,7 +166,12 @@ float similarity(uint point_id) {
     float zeros_count = float((DIM / 4) * 32) - xor_product;
     return zeros_count - xor_product;
 #else
+#ifdef VECTOR_STORAGE_ELEMENT_SQ
+    float sq_offset = target_offset + vector_offsets.data[point_id] - SQ_DIFF;
+    return SQ_MULTIPLIER * subgroupAdd(result) + sq_offset;
+#else
     return subgroupAdd(result);
+#endif
 #endif
 }
 

@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use common::types::PointOffsetType;
+use itertools::Itertools;
 
 use crate::data_types::primitive::PrimitiveVectorElement;
 use crate::data_types::vectors::{VectorElementType, VectorElementTypeByte, VectorElementTypeHalf};
@@ -20,16 +21,20 @@ pub enum GpuVectorStorageElementType {
     Float16,
     Uint8,
     Binary,
+    SQ,
 }
 
 pub struct GpuVectorStorage {
     pub device: Arc<gpu::Device>,
     pub vectors_buffer: Vec<Arc<gpu::Buffer>>,
+    pub sq_offsets_buffer: Option<Arc<gpu::Buffer>>,
     pub descriptor_set_layout: Arc<gpu::DescriptorSetLayout>,
     pub descriptor_set: Arc<gpu::DescriptorSet>,
     pub dim: usize,
     pub count: usize,
     pub element_type: GpuVectorStorageElementType,
+    pub sq_multiplier: Option<f32>,
+    pub sq_diff: Option<f32>,
 }
 
 impl GpuVectorStorage {
@@ -58,13 +63,39 @@ impl GpuVectorStorage {
         force_half_precision: bool,
     ) -> gpu::GpuResult<Self> {
         match quantized_storage {
-            QuantizedVectorStorage::ScalarRam(_) => {
-                log::warn!("GPU does not support scalar quantization, use original vector data");
-                Self::new_from_vector_storage(device, vector_storage, force_half_precision)
+            QuantizedVectorStorage::ScalarRam(quantized_storage) => {
+                Self::new_typed::<VectorElementTypeByte>(
+                    device,
+                    GpuVectorStorageElementType::SQ,
+                    vector_storage.total_vector_count(),
+                    |id| {
+                        let (_, vector) = quantized_storage.get_quantized_vector(id);
+                        Cow::Borrowed(vector)
+                    },
+                    Some(Box::new(|id| {
+                        let (offset, _) = quantized_storage.get_quantized_vector(id);
+                        offset
+                    })),
+                    Some(quantized_storage.get_multiplier()),
+                    Some(quantized_storage.get_diff()),
+                )
             }
-            QuantizedVectorStorage::ScalarMmap(_) => {
-                log::warn!("GPU does not support scalar quantization, use original vector data");
-                Self::new_from_vector_storage(device, vector_storage, force_half_precision)
+            QuantizedVectorStorage::ScalarMmap(quantized_storage) => {
+                Self::new_typed::<VectorElementTypeByte>(
+                    device,
+                    GpuVectorStorageElementType::SQ,
+                    vector_storage.total_vector_count(),
+                    |id| {
+                        let (_, vector) = quantized_storage.get_quantized_vector(id);
+                        Cow::Borrowed(vector)
+                    },
+                    Some(Box::new(|id| {
+                        let (offset, _) = quantized_storage.get_quantized_vector(id);
+                        offset
+                    })),
+                    Some(quantized_storage.get_multiplier()),
+                    Some(quantized_storage.get_diff()),
+                )
             }
             QuantizedVectorStorage::PQRam(_) => {
                 log::warn!("GPU does not support product quantization, use original vector data");
@@ -97,6 +128,9 @@ impl GpuVectorStorage {
                         }
                         Cow::Owned(binary)
                     },
+                    None,
+                    None,
+                    None,
                 )
             }
             QuantizedVectorStorage::BinaryMmap(_) => {
@@ -121,6 +155,9 @@ impl GpuVectorStorage {
                         }
                         Cow::Owned(binary)
                     },
+                    None,
+                    None,
+                    None,
                 )
             }
             QuantizedVectorStorage::ScalarRamMulti(_) => Err(gpu::GpuError::NotSupported),
@@ -149,6 +186,9 @@ impl GpuVectorStorage {
                                 vector_storage.get_dense(id),
                             ))
                         },
+                        None,
+                        None,
+                        None,
                     )
                 } else {
                     Self::new_typed::<VectorElementType>(
@@ -156,6 +196,9 @@ impl GpuVectorStorage {
                         GpuVectorStorageElementType::Float32,
                         vector_storage.total_vector_count(),
                         |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                        None,
+                        None,
+                        None,
                     )
                 }
             }
@@ -165,6 +208,9 @@ impl GpuVectorStorage {
                     GpuVectorStorageElementType::Uint8,
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                    None,
+                    None,
+                    None,
                 )
             }
             VectorStorageEnum::DenseSimpleHalf(vector_storage) => {
@@ -173,6 +219,9 @@ impl GpuVectorStorage {
                     GpuVectorStorageElementType::Float16,
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                    None,
+                    None,
+                    None,
                 )
             }
             VectorStorageEnum::DenseMemmap(vector_storage) => {
@@ -186,6 +235,9 @@ impl GpuVectorStorage {
                                 vector_storage.get_dense(id),
                             ))
                         },
+                        None,
+                        None,
+                        None,
                     )
                 } else {
                     Self::new_typed::<VectorElementType>(
@@ -193,6 +245,9 @@ impl GpuVectorStorage {
                         GpuVectorStorageElementType::Float32,
                         vector_storage.total_vector_count(),
                         |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                        None,
+                        None,
+                        None,
                     )
                 }
             }
@@ -202,6 +257,9 @@ impl GpuVectorStorage {
                     GpuVectorStorageElementType::Uint8,
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                    None,
+                    None,
+                    None,
                 )
             }
             VectorStorageEnum::DenseMemmapHalf(vector_storage) => {
@@ -210,6 +268,9 @@ impl GpuVectorStorage {
                     GpuVectorStorageElementType::Float16,
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                    None,
+                    None,
+                    None,
                 )
             }
             VectorStorageEnum::DenseAppendableMemmap(vector_storage) => {
@@ -223,6 +284,9 @@ impl GpuVectorStorage {
                                 vector_storage.get_dense(id),
                             ))
                         },
+                        None,
+                        None,
+                        None,
                     )
                 } else {
                     Self::new_typed::<VectorElementType>(
@@ -230,6 +294,9 @@ impl GpuVectorStorage {
                         GpuVectorStorageElementType::Float32,
                         vector_storage.total_vector_count(),
                         |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                        None,
+                        None,
+                        None,
                     )
                 }
             }
@@ -239,6 +306,9 @@ impl GpuVectorStorage {
                     GpuVectorStorageElementType::Uint8,
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                    None,
+                    None,
+                    None,
                 )
             }
             VectorStorageEnum::DenseAppendableMemmapHalf(vector_storage) => {
@@ -247,6 +317,9 @@ impl GpuVectorStorage {
                     GpuVectorStorageElementType::Float16,
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                    None,
+                    None,
+                    None,
                 )
             }
             VectorStorageEnum::DenseAppendableInRam(vector_storage) => {
@@ -260,6 +333,9 @@ impl GpuVectorStorage {
                                 vector_storage.get_dense(id),
                             ))
                         },
+                        None,
+                        None,
+                        None,
                     )
                 } else {
                     Self::new_typed::<VectorElementType>(
@@ -267,6 +343,9 @@ impl GpuVectorStorage {
                         GpuVectorStorageElementType::Float32,
                         vector_storage.total_vector_count(),
                         |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                        None,
+                        None,
+                        None,
                     )
                 }
             }
@@ -276,6 +355,9 @@ impl GpuVectorStorage {
                     GpuVectorStorageElementType::Uint8,
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                    None,
+                    None,
+                    None,
                 )
             }
             VectorStorageEnum::DenseAppendableInRamHalf(vector_storage) => {
@@ -284,6 +366,9 @@ impl GpuVectorStorage {
                     GpuVectorStorageElementType::Float16,
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                    None,
+                    None,
+                    None,
                 )
             }
             VectorStorageEnum::SparseSimple(_) => Err(gpu::GpuError::NotSupported),
@@ -308,6 +393,9 @@ impl GpuVectorStorage {
         element_type: GpuVectorStorageElementType,
         count: usize,
         get_vector: impl Fn(PointOffsetType) -> Cow<'a, [TElement]>,
+        get_sq_offset: Option<Box<dyn Fn(PointOffsetType) -> f32 + 'a>>,
+        sq_multiplier: Option<f32>,
+        sq_diff: Option<f32>,
     ) -> gpu::GpuResult<Self> {
         let timer = std::time::Instant::now();
 
@@ -409,9 +497,46 @@ impl GpuVectorStorage {
             element_type,
         );
 
+        let sq_offsets_buffer = if let Some(offsets_fn) = get_sq_offset {
+            let sq_offsets_buffer = Arc::new(gpu::Buffer::new(
+                device.clone(),
+                gpu::BufferType::Storage,
+                count * std::mem::size_of::<f32>(),
+            )?);
+            for (chunk_index, chunk) in (0..count as PointOffsetType)
+                .chunks(upload_points_count)
+                .into_iter()
+                .enumerate()
+            {
+                for (buffer_offset, idx) in chunk.enumerate() {
+                    let offset = offsets_fn(idx);
+                    staging_buffer.upload(&offset, buffer_offset * std::mem::size_of::<f32>());
+                }
+                let dst_offset = chunk_index * upload_points_count * std::mem::size_of::<f32>();
+                let copy_size = (upload_points_count * std::mem::size_of::<f32>())
+                    .min(sq_offsets_buffer.size - dst_offset);
+                upload_context.copy_gpu_buffer(
+                    staging_buffer.clone(),
+                    sq_offsets_buffer.clone(),
+                    0,
+                    chunk_index * upload_points_count * std::mem::size_of::<f32>(),
+                    copy_size,
+                );
+                upload_context.run();
+                upload_context.wait_finish();
+            }
+            Some(sq_offsets_buffer)
+        } else {
+            None
+        };
+
         let mut descriptor_set_layout_builder = gpu::DescriptorSetLayout::builder();
         for i in 0..STORAGES_COUNT {
             descriptor_set_layout_builder = descriptor_set_layout_builder.add_storage_buffer(i);
+        }
+        if sq_offsets_buffer.is_some() {
+            descriptor_set_layout_builder =
+                descriptor_set_layout_builder.add_storage_buffer(STORAGES_COUNT);
         }
         let descriptor_set_layout = descriptor_set_layout_builder.build(device.clone());
 
@@ -420,17 +545,23 @@ impl GpuVectorStorage {
             descriptor_set_builder =
                 descriptor_set_builder.add_storage_buffer(i, vector_buffer.clone());
         }
-
+        if let Some(sq_offsets_buffer) = &sq_offsets_buffer {
+            descriptor_set_builder = descriptor_set_builder
+                .add_storage_buffer(STORAGES_COUNT, sq_offsets_buffer.clone());
+        }
         let descriptor_set = descriptor_set_builder.build();
 
         Ok(Self {
             device,
             vectors_buffer,
+            sq_offsets_buffer,
             descriptor_set_layout,
             descriptor_set,
             dim: capacity,
             count,
             element_type,
+            sq_multiplier,
+            sq_diff,
         })
     }
 
@@ -460,6 +591,7 @@ mod tests {
     use crate::spaces::simple::DotProductMetric;
     use crate::types::{
         BinaryQuantization, BinaryQuantizationConfig, Distance, QuantizationConfig,
+        ScalarQuantization, ScalarQuantizationConfig,
     };
     use crate::vector_storage::dense::simple_dense_vector_storage::{
         open_simple_dense_byte_vector_storage, open_simple_dense_half_vector_storage,
@@ -561,6 +693,8 @@ mod tests {
         let shader = ShaderBuilder::new(device.clone())
             .with_shader_code(include_str!("shaders/tests/test_vector_storage.comp"))
             .with_element_type(gpu_vector_storage.element_type)
+            .with_sq_multiplier(gpu_vector_storage.sq_multiplier)
+            .with_sq_diff(gpu_vector_storage.sq_diff)
             .with_dim(gpu_vector_storage.dim)
             .build();
 
@@ -707,6 +841,8 @@ mod tests {
         let shader = ShaderBuilder::new(device.clone())
             .with_shader_code(include_str!("shaders/tests/test_vector_storage.comp"))
             .with_element_type(gpu_vector_storage.element_type)
+            .with_sq_multiplier(gpu_vector_storage.sq_multiplier)
+            .with_sq_diff(gpu_vector_storage.sq_diff)
             .with_dim(gpu_vector_storage.dim)
             .build();
 
@@ -763,6 +899,139 @@ mod tests {
             let score =
                 scorer.score_internal(test_point_id as PointOffsetType, i as PointOffsetType);
             assert_eq!(score, scores[i]);
+        }
+    }
+
+    #[test]
+    fn test_gpu_vector_storage_sq() {
+        let num_vectors = 16;
+        let dim = 1024;
+        let test_point_id = 0usize;
+
+        let mut rnd = StdRng::seed_from_u64(42);
+        let points = (0..num_vectors)
+            .map(|_| random_vector(&mut rnd, dim))
+            .collect::<Vec<_>>();
+
+        let dir = tempfile::Builder::new().prefix("db_dir").tempdir().unwrap();
+        let db = open_db(dir.path(), &[DB_VECTOR_CF]).unwrap();
+        let mut storage =
+            open_simple_dense_vector_storage(db, DB_VECTOR_CF, dim, Distance::Dot, &false.into())
+                .unwrap();
+
+        points.iter().enumerate().for_each(|(i, vec)| {
+            storage
+                .insert_vector(i as PointOffsetType, vec.into())
+                .unwrap();
+        });
+
+        let quantized_vectors = QuantizedVectors::create(
+            &storage,
+            &QuantizationConfig::Scalar(ScalarQuantization {
+                scalar: ScalarQuantizationConfig {
+                    always_ram: Some(true),
+                    r#type: crate::types::ScalarType::Int8,
+                    quantile: Some(0.99),
+                },
+            }),
+            dir.path(),
+            1,
+            &false.into(),
+        )
+        .unwrap();
+
+        let debug_messenger = gpu::PanicIfErrorMessenger {};
+        let instance =
+            Arc::new(gpu::Instance::new("qdrant", Some(&debug_messenger), false).unwrap());
+        let device =
+            Arc::new(gpu::Device::new(instance.clone(), instance.vk_physical_devices[0]).unwrap());
+
+        let gpu_vector_storage =
+            GpuVectorStorage::new(device.clone(), &storage, Some(&quantized_vectors), false)
+                .unwrap();
+        assert_eq!(
+            gpu_vector_storage.element_type,
+            GpuVectorStorageElementType::SQ
+        );
+
+        let scores_buffer = Arc::new(
+            gpu::Buffer::new(
+                device.clone(),
+                gpu::BufferType::Storage,
+                num_vectors * std::mem::size_of::<f32>(),
+            )
+            .unwrap(),
+        );
+
+        let descriptor_set_layout = gpu::DescriptorSetLayout::builder()
+            .add_storage_buffer(0)
+            .build(device.clone());
+
+        let descriptor_set = gpu::DescriptorSet::builder(descriptor_set_layout.clone())
+            .add_storage_buffer(0, scores_buffer.clone())
+            .build();
+
+        let shader = ShaderBuilder::new(device.clone())
+            .with_shader_code(include_str!("shaders/tests/test_vector_storage.comp"))
+            .with_element_type(gpu_vector_storage.element_type)
+            .with_sq_multiplier(gpu_vector_storage.sq_multiplier)
+            .with_sq_diff(gpu_vector_storage.sq_diff)
+            .with_dim(gpu_vector_storage.dim)
+            .build();
+
+        let pipeline = gpu::Pipeline::builder()
+            .add_descriptor_set_layout(0, descriptor_set_layout.clone())
+            .add_descriptor_set_layout(1, gpu_vector_storage.descriptor_set_layout.clone())
+            .add_shader(shader.clone())
+            .build(device.clone());
+
+        let mut context = gpu::Context::new(device.clone());
+        context.bind_pipeline(
+            pipeline,
+            &[descriptor_set, gpu_vector_storage.descriptor_set.clone()],
+        );
+        context.dispatch(num_vectors, 1, 1);
+
+        let timer = std::time::Instant::now();
+        context.run();
+        context.wait_finish();
+        println!("GPU scoring time = {:?}", timer.elapsed());
+
+        let staging_buffer = Arc::new(
+            gpu::Buffer::new(
+                device.clone(),
+                gpu::BufferType::GpuToCpu,
+                num_vectors * std::mem::size_of::<f32>(),
+            )
+            .unwrap(),
+        );
+        context.copy_gpu_buffer(
+            scores_buffer,
+            staging_buffer.clone(),
+            0,
+            0,
+            num_vectors * std::mem::size_of::<f32>(),
+        );
+        context.run();
+        context.wait_finish();
+
+        let mut scores = vec![0.0f32; num_vectors];
+        staging_buffer.download_slice(&mut scores, 0);
+
+        let stopped = false.into();
+        let point_deleted = BitVec::repeat(false, num_vectors);
+        let scorer = quantized_vectors
+            .raw_scorer(
+                points[test_point_id].clone().into(),
+                &point_deleted,
+                &point_deleted,
+                &stopped,
+            )
+            .unwrap();
+        for i in 0..num_vectors {
+            let score =
+                scorer.score_internal(test_point_id as PointOffsetType, i as PointOffsetType);
+            assert!((score - scores[i]).abs() < 0.01);
         }
     }
 }

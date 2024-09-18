@@ -7,6 +7,8 @@ pub struct ShaderBuilder {
     device: Arc<gpu::Device>,
     shader_code: String,
     element_type: Option<GpuVectorStorageElementType>,
+    sq_multiplier: Option<f32>,
+    sq_diff: Option<f32>,
     dim: Option<usize>,
     storages_count: Option<usize>,
     storage_size: Option<usize>,
@@ -74,6 +76,8 @@ impl ShaderBuilder {
             device,
             shader_code: Default::default(),
             element_type: None,
+            sq_multiplier: None,
+            sq_diff: None,
             dim: None,
             storages_count: None,
             storage_size: None,
@@ -93,6 +97,16 @@ impl ShaderBuilder {
 
     pub fn with_element_type(&mut self, element_type: GpuVectorStorageElementType) -> &mut Self {
         self.element_type = Some(element_type);
+        self
+    }
+
+    pub fn with_sq_multiplier(&mut self, sq_multiplier: Option<f32>) -> &mut Self {
+        self.sq_multiplier = sq_multiplier;
+        self
+    }
+
+    pub fn with_sq_diff(&mut self, sq_diff: Option<f32>) -> &mut Self {
+        self.sq_diff = sq_diff;
         self
     }
 
@@ -159,7 +173,18 @@ impl ShaderBuilder {
                 GpuVectorStorageElementType::Binary => {
                     options.add_macro_definition("VECTOR_STORAGE_ELEMENT_BINARY", None)
                 }
+                GpuVectorStorageElementType::SQ => {
+                    options.add_macro_definition("VECTOR_STORAGE_ELEMENT_SQ", None)
+                }
             }
+        }
+
+        if let Some(sq_multiplier) = self.sq_multiplier {
+            options.add_macro_definition("SQ_MULTIPLIER", Some(&sq_multiplier.to_string()));
+        }
+
+        if let Some(sq_diff) = self.sq_diff {
+            options.add_macro_definition("SQ_DIFF", Some(&sq_diff.to_string()));
         }
 
         if let Some(dim) = self.dim {
