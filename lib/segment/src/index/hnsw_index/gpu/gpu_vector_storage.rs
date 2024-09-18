@@ -105,56 +105,23 @@ impl GpuVectorStorage {
                 log::warn!("GPU does not support product quantization, use original vector data");
                 Self::new_from_vector_storage(device, vector_storage, force_half_precision)
             }
-            QuantizedVectorStorage::BinaryRam(_) => {
-                let first_vector = vector_storage.get_vector(0);
-                // TODO(gpu): remove unwrap
-                let first_dense: &[VectorElementType] =
-                    first_vector.as_vec_ref().try_into().unwrap();
-                let bits_per_read = device.subgroup_size() * std::mem::size_of::<u32>() * 8;
-                let bits_count = first_dense.len().div_ceil(bits_per_read) * bits_per_read;
-                let u32_count = bits_count / 32;
+            QuantizedVectorStorage::BinaryRam(quantized_storage) => {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::Binary,
                     vector_storage.total_vector_count(),
-                    |id| {
-                        let vector = vector_storage.get_vector(id);
-                        let dense: &[VectorElementType] = vector.as_vec_ref().try_into().unwrap();
-                        let mut binary = vec![0u8; u32_count * std::mem::size_of::<u32>()];
-                        for (i, v) in dense.iter().enumerate() {
-                            if *v > 0.0 {
-                                binary[i / 8] |= 1u8 << (i % 8);
-                            }
-                        }
-                        Cow::Owned(binary)
-                    },
+                    |id| Cow::Borrowed(quantized_storage.get_quantized_vector(id)),
                     None,
                     None,
                     None,
                 )
             }
-            QuantizedVectorStorage::BinaryMmap(_) => {
-                let first_vector = vector_storage.get_vector(0);
-                // TODO(gpu): remove unwrap
-                let first_dense: &[VectorElementType] =
-                    first_vector.as_vec_ref().try_into().unwrap();
-                let bits_per_read = device.subgroup_size() * std::mem::size_of::<u32>() * 8;
-                let bits_count = first_dense.len().div_ceil(bits_per_read) * bits_per_read;
-                let u32_count = bits_count / 32;
+            QuantizedVectorStorage::BinaryMmap(quantized_storage) => {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::Binary,
                     vector_storage.total_vector_count(),
-                    |id| {
-                        let vector = vector_storage.get_vector(id);
-                        let dense: &[VectorElementType] = vector.as_vec_ref().try_into().unwrap();
-                        let mut binary = vec![0u8; u32_count * std::mem::size_of::<u32>()];
-                        for (i, v) in dense.iter().enumerate() {
-                            let bit = if *v > 0.0 { 1 } else { 0 };
-                            binary[i / 8] |= bit << (i % 8);
-                        }
-                        Cow::Owned(binary)
-                    },
+                    |id| Cow::Borrowed(quantized_storage.get_quantized_vector(id)),
                     None,
                     None,
                     None,
