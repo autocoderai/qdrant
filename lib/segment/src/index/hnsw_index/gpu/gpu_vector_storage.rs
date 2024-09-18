@@ -249,6 +249,43 @@ impl GpuVectorStorage {
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
                 )
             }
+            VectorStorageEnum::DenseAppendableInRam(vector_storage) => {
+                if force_half_precision {
+                    Self::new_typed::<VectorElementTypeHalf>(
+                        device,
+                        GpuVectorStorageElementType::Float16,
+                        vector_storage.total_vector_count(),
+                        |id| {
+                            VectorElementTypeHalf::slice_from_float_cow(Cow::Borrowed(
+                                vector_storage.get_dense(id),
+                            ))
+                        },
+                    )
+                } else {
+                    Self::new_typed::<VectorElementType>(
+                        device,
+                        GpuVectorStorageElementType::Float32,
+                        vector_storage.total_vector_count(),
+                        |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                    )
+                }
+            }
+            VectorStorageEnum::DenseAppendableInRamByte(vector_storage) => {
+                Self::new_typed::<VectorElementTypeByte>(
+                    device,
+                    GpuVectorStorageElementType::Uint8,
+                    vector_storage.total_vector_count(),
+                    |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                )
+            }
+            VectorStorageEnum::DenseAppendableInRamHalf(vector_storage) => {
+                Self::new_typed::<VectorElementTypeHalf>(
+                    device,
+                    GpuVectorStorageElementType::Float16,
+                    vector_storage.total_vector_count(),
+                    |id| Cow::Borrowed(vector_storage.get_dense(id)),
+                )
+            }
             VectorStorageEnum::SparseSimple(_) => Err(gpu::GpuError::NotSupported),
             VectorStorageEnum::MultiDenseSimple(_) => Err(gpu::GpuError::NotSupported),
             VectorStorageEnum::MultiDenseSimpleByte(_) => Err(gpu::GpuError::NotSupported),
@@ -260,6 +297,9 @@ impl GpuVectorStorage {
             VectorStorageEnum::MultiDenseAppendableMemmapHalf(_) => {
                 Err(gpu::GpuError::NotSupported)
             }
+            VectorStorageEnum::MultiDenseAppendableInRam(_) => Err(gpu::GpuError::NotSupported),
+            VectorStorageEnum::MultiDenseAppendableInRamByte(_) => Err(gpu::GpuError::NotSupported),
+            VectorStorageEnum::MultiDenseAppendableInRamHalf(_) => Err(gpu::GpuError::NotSupported),
         }
     }
 

@@ -171,7 +171,7 @@ pub struct Settings {
     #[serde(default, skip)]
     pub load_errors: Vec<LogMsg>,
     #[serde(default)]
-    #[validate]
+    #[validate(nested)]
     pub gpu: Option<GpuConfig>,
 }
 

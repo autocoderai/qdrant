@@ -62,9 +62,6 @@ const SINGLE_THREADED_HNSW_BUILD_THRESHOLD: usize = 32;
 #[cfg(not(debug_assertions))]
 const SINGLE_THREADED_HNSW_BUILD_THRESHOLD: usize = 256;
 
-const BYTES_IN_KB: usize = 1024;
-const GPU_THREADS_COUNT: usize = 1024;
-
 #[derive(Debug)]
 pub struct HNSWIndex<TGraphLinks: GraphLinks> {
     id_tracker: Arc<AtomicRefCell<IdTrackerSS>>,
@@ -242,18 +239,19 @@ impl<TGraphLinks: GraphLinks> HNSWIndex<TGraphLinks> {
 
         debug!("building HNSW for {total_vector_count} vectors with {num_cpus} CPUs");
 
+        let num_entries = std::cmp::max(
+            1,
+            total_vector_count
+                .checked_div(full_scan_threshold)
+                .unwrap_or(0)
+                * 10,
+        );
         let mut graph_layers_builder = GraphLayersBuilder::new(
             total_vector_count,
             config.m,
             config.m0,
             config.ef_construct,
-            std::cmp::max(
-                1,
-                total_vector_count
-                    .checked_div(full_scan_threshold)
-                    .unwrap_or(0)
-                    * 10,
-            ),
+            num_entries,
             HNSW_USE_HEURISTIC,
         );
 
@@ -292,7 +290,7 @@ impl<TGraphLinks: GraphLinks> HNSWIndex<TGraphLinks> {
 
         let mut indexed_vectors = 0;
 
-        if self.config.m > 0 {
+        if config.m > 0 {
             let timer = std::time::Instant::now();
 
             let single_threaded_threshold = if !use_gpu {
@@ -312,17 +310,13 @@ impl<TGraphLinks: GraphLinks> HNSWIndex<TGraphLinks> {
             indexed_vectors = ids.len() + first_few_ids.len();
 
             if use_gpu {
-                graph_layers_builder = GpuGraphBuilder::build(
+                graph_layers_builder = build_hnsw_on_gpu(
                     &pool,
                     &graph_layers_builder,
                     None,
-                    get_gpu_max_groups_count(
-                        vector_storage.available_size_in_bytes(),
-                        total_vector_count,
-                        self.config.m0,
-                        self.config.ef_construct,
-                    ),
+                    get_gpu_max_groups(),
                     &vector_storage,
+                    quantized_vectors.as_ref(),
                     num_entries,
                     get_gpu_force_half_precision(),
                     SINGLE_THREADED_HNSW_BUILD_THRESHOLD,
@@ -381,70 +375,6 @@ impl<TGraphLinks: GraphLinks> HNSWIndex<TGraphLinks> {
             debug!("finish main graph in time {:?}", timer.elapsed());
         } else {
             debug!("skip building main HNSW graph");
-        }
-
-        let visited_pool = VisitedPool::new();
-        let mut block_filter_list = visited_pool.get(total_vector_count);
-        let visits_iteration = block_filter_list.get_current_iteration_id();
-
-        let payload_index = self.payload_index.borrow();
-        let payload_m = self.config.payload_m.unwrap_or(self.config.m);
-
-        if payload_m > 0 {
-            // Calculate true average number of links per vertex in the HNSW graph
-            // to better estimate percolation threshold
-            let average_links_per_0_level =
-                graph_layers_builder.get_average_connectivity_on_level(0);
-            let average_links_per_0_level_int = (average_links_per_0_level as usize).max(1);
-
-            for (field, _) in payload_index.indexed_fields() {
-                debug!("building additional index for field {}", &field);
-
-                // It is expected, that graph will become disconnected less than
-                // $1/m$ points left.
-                // So blocks larger than $1/m$ are not needed.
-                // We add multiplier for the extra safety.
-                let percolation_multiplier = 4;
-                let max_block_size = if self.config.m > 0 {
-                    total_vector_count / average_links_per_0_level_int * percolation_multiplier
-                } else {
-                    usize::MAX
-                };
-                let min_block_size = indexing_threshold;
-
-                for payload_block in payload_index.payload_blocks(&field, min_block_size) {
-                    check_process_stopped(stopped)?;
-                    if payload_block.cardinality > max_block_size {
-                        continue;
-                    }
-                    // ToDo: reuse graph layer for same payload
-                    let mut additional_graph = GraphLayersBuilder::new_with_params(
-                        total_vector_count,
-                        payload_m,
-                        self.config.payload_m0.unwrap_or(self.config.m0),
-                        self.config.ef_construct,
-                        1,
-                        HNSW_USE_HEURISTIC,
-                        false,
-                    );
-                    self.build_filtered_graph(
-                        &pool,
-                        stopped,
-                        &mut additional_graph,
-                        payload_block.condition,
-                        &mut block_filter_list,
-                    )?;
-                    graph_layers_builder.merge_from_other(additional_graph);
-                }
-            }
-
-            let indexed_payload_vectors = block_filter_list.count_visits_since(visits_iteration);
-
-            debug_assert!(indexed_vectors >= indexed_payload_vectors || self.config.m == 0);
-            indexed_vectors = indexed_vectors.max(indexed_payload_vectors);
-            debug_assert!(indexed_payload_vectors <= total_vector_count);
-        } else {
-            debug!("skip building additional HNSW links");
         }
 
         let visited_pool = VisitedPool::new();
