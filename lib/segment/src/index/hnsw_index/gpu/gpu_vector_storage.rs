@@ -556,10 +556,7 @@ impl GpuVectorStorage {
         })
     }
 
-    pub fn get_capacity(
-        device: &Arc<gpu::Device>,
-        dim: usize,
-    ) -> usize {
+    pub fn get_capacity(device: &Arc<gpu::Device>, dim: usize) -> usize {
         let alignment = device.subgroup_size * ELEMENTS_PER_SUBGROUP;
         dim + (alignment - dim % alignment) % alignment
     }
