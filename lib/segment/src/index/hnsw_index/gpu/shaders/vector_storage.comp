@@ -5,61 +5,29 @@
 #error "VECTOR_STORAGE_LAYOUT_SET not defined"
 #endif
 
+#include "common.comp"
+
 #ifdef VECTOR_STORAGE_ELEMENT_FLOAT32
-
-#define VECTOR_STORAGE_ELEMENT_TYPE vec4
-#define VECTOR_STORAGE_SCORE_ELEMENT(a, b) dot(a, b)
-
+#include "vector_storage_f32.comp"
 #endif
 
 #ifdef VECTOR_STORAGE_ELEMENT_FLOAT16
-
-#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
-#define VECTOR_STORAGE_ELEMENT_TYPE f16vec4
-#define VECTOR_STORAGE_SCORE_ELEMENT(a, b) dot(a, b)
-
+#include "vector_storage_f16.comp"
 #endif
 
 #ifdef VECTOR_STORAGE_ELEMENT_UINT8
-
-float dot_u8vec4(u8vec4 a, u8vec4 b) {
-    uint sum = uint(a.x) * uint(b.x) + uint(a.y) * uint(b.y) + uint(a.z) * uint(b.z) + uint(a.w) * uint(b.w);
-    return float(sum);
-}
-
-#define VECTOR_STORAGE_ELEMENT_TYPE u8vec4
-#define VECTOR_STORAGE_SCORE_ELEMENT(a, b) dot_u8vec4(a, b)
-
+#include "vector_storage_u8.comp"
 #endif
 
 #ifdef VECTOR_STORAGE_ELEMENT_SQ
-
-float dot_u8vec4(u8vec4 a, u8vec4 b) {
-    uint sum = uint(a.x) * uint(b.x) + uint(a.y) * uint(b.y) + uint(a.z) * uint(b.z) + uint(a.w) * uint(b.w);
-    return float(sum);
-}
-
-#define VECTOR_STORAGE_ELEMENT_TYPE u8vec4
-#define VECTOR_STORAGE_SCORE_ELEMENT(a, b) dot_u8vec4(a, b)
-
+#include "vector_storage_sq.comp"
 #endif
 
 #ifdef VECTOR_STORAGE_ELEMENT_BINARY
-
-// uint = 4 * uint8_t, vec4 analogue for BQ
-#define VECTOR_STORAGE_ELEMENT_TYPE uint
-#define VECTOR_STORAGE_SCORE_ELEMENT(a, b) float(bitCount(a ^ b))
-
+#include "vector_storage_bq.comp"
 #endif
-
-#ifndef VECTOR_STORAGE_ELEMENT_TYPE
-#error "VECTOR_STORAGE_ELEMENT not defined"
-#endif
-
-#include "common.comp"
 
 #define STORAGES_COUNT 4
-
 #define STORAGE(STORAGE_INDEX) CONCAT(vectors, STORAGE_INDEX)
 
 #define VECTOR_STORAGE_DEFINE(STORAGE_INDEX) \
@@ -76,7 +44,7 @@ VECTOR_STORAGE_DEFINE(3)
 // SQ offsets
 #ifdef VECTOR_STORAGE_ELEMENT_SQ
 
-layout(set = VECTOR_STORAGE_LAYOUT_SET, binding = 4) \
+layout(set = VECTOR_STORAGE_LAYOUT_SET, binding = STORAGES_COUNT) \
 readonly buffer VectorOffsets { \
     float data[]; \
 } vector_offsets;

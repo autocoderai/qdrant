@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::gpu_vector_storage::GpuVectorStorageElementType;
+use crate::types::Distance;
 
 pub struct ShaderBuilder {
     device: Arc<gpu::Device>,
     shader_code: String,
     element_type: Option<GpuVectorStorageElementType>,
+    distance: Option<Distance>,
     sq_multiplier: Option<f32>,
     sq_diff: Option<f32>,
     dim: Option<usize>,
@@ -33,6 +35,10 @@ impl ShaderBuilder {
             (
                 "common.comp".to_string(),
                 include_str!("shaders/common.comp").to_string(),
+            ),
+            (
+                "extensions.comp".to_string(),
+                include_str!("shaders/extensions.comp").to_string(),
             ),
             (
                 "iterators.comp".to_string(),
@@ -67,6 +73,26 @@ impl ShaderBuilder {
                 include_str!("shaders/vector_storage.comp").to_string(),
             ),
             (
+                "vector_storage_bq.comp".to_string(),
+                include_str!("shaders/vector_storage_bq.comp").to_string(),
+            ),
+            (
+                "vector_storage_f16.comp".to_string(),
+                include_str!("shaders/vector_storage_f16.comp").to_string(),
+            ),
+            (
+                "vector_storage_f32.comp".to_string(),
+                include_str!("shaders/vector_storage_f32.comp").to_string(),
+            ),
+            (
+                "vector_storage_sq.comp".to_string(),
+                include_str!("shaders/vector_storage_sq.comp").to_string(),
+            ),
+            (
+                "vector_storage_u8.comp".to_string(),
+                include_str!("shaders/vector_storage_u8.comp").to_string(),
+            ),
+            (
                 "visited_flags.comp".to_string(),
                 include_str!("shaders/visited_flags.comp").to_string(),
             ),
@@ -76,6 +102,7 @@ impl ShaderBuilder {
             device,
             shader_code: Default::default(),
             element_type: None,
+            distance: None,
             sq_multiplier: None,
             sq_diff: None,
             dim: None,
@@ -97,6 +124,11 @@ impl ShaderBuilder {
 
     pub fn with_element_type(&mut self, element_type: GpuVectorStorageElementType) -> &mut Self {
         self.element_type = Some(element_type);
+        self
+    }
+
+    pub fn with_distance(&mut self, distance: Distance) -> &mut Self {
+        self.distance = Some(distance);
         self
     }
 
@@ -176,6 +208,15 @@ impl ShaderBuilder {
                 GpuVectorStorageElementType::SQ => {
                     options.add_macro_definition("VECTOR_STORAGE_ELEMENT_SQ", None)
                 }
+            }
+        }
+
+        if let Some(distance) = self.distance {
+            match distance {
+                Distance::Cosine => options.add_macro_definition("COSINE_DISTANCE", None),
+                Distance::Euclid => options.add_macro_definition("EUCLID_DISTANCE", None),
+                Distance::Dot => options.add_macro_definition("DOT_DISTANCE", None),
+                Distance::Manhattan => options.add_macro_definition("MANHATTAN_DISTANCE", None),
             }
         }
 

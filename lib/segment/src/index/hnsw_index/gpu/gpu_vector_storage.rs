@@ -6,6 +6,7 @@ use itertools::Itertools;
 
 use crate::data_types::primitive::PrimitiveVectorElement;
 use crate::data_types::vectors::{VectorElementType, VectorElementTypeByte, VectorElementTypeHalf};
+use crate::types::Distance;
 use crate::vector_storage::quantized::quantized_vectors::{
     QuantizedVectorStorage, QuantizedVectors,
 };
@@ -33,6 +34,7 @@ pub struct GpuVectorStorage {
     pub dim: usize,
     pub count: usize,
     pub element_type: GpuVectorStorageElementType,
+    pub distance: Distance,
     pub sq_multiplier: Option<f32>,
     pub sq_diff: Option<f32>,
 }
@@ -67,6 +69,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::SQ,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| {
                         let (_, vector) = quantized_storage.get_quantized_vector(id);
@@ -84,6 +87,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::SQ,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| {
                         let (_, vector) = quantized_storage.get_quantized_vector(id);
@@ -109,6 +113,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::Binary,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(quantized_storage.get_quantized_vector(id)),
                     None,
@@ -120,6 +125,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::Binary,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(quantized_storage.get_quantized_vector(id)),
                     None,
@@ -147,6 +153,7 @@ impl GpuVectorStorage {
                     Self::new_typed::<VectorElementTypeHalf>(
                         device,
                         GpuVectorStorageElementType::Float16,
+                        vector_storage.distance(),
                         vector_storage.total_vector_count(),
                         |id| {
                             VectorElementTypeHalf::slice_from_float_cow(Cow::Borrowed(
@@ -161,6 +168,7 @@ impl GpuVectorStorage {
                     Self::new_typed::<VectorElementType>(
                         device,
                         GpuVectorStorageElementType::Float32,
+                        vector_storage.distance(),
                         vector_storage.total_vector_count(),
                         |id| Cow::Borrowed(vector_storage.get_dense(id)),
                         None,
@@ -173,6 +181,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::Uint8,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
                     None,
@@ -184,6 +193,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeHalf>(
                     device,
                     GpuVectorStorageElementType::Float16,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
                     None,
@@ -196,6 +206,7 @@ impl GpuVectorStorage {
                     Self::new_typed::<VectorElementTypeHalf>(
                         device,
                         GpuVectorStorageElementType::Float16,
+                        vector_storage.distance(),
                         vector_storage.total_vector_count(),
                         |id| {
                             VectorElementTypeHalf::slice_from_float_cow(Cow::Borrowed(
@@ -210,6 +221,7 @@ impl GpuVectorStorage {
                     Self::new_typed::<VectorElementType>(
                         device,
                         GpuVectorStorageElementType::Float32,
+                        vector_storage.distance(),
                         vector_storage.total_vector_count(),
                         |id| Cow::Borrowed(vector_storage.get_dense(id)),
                         None,
@@ -222,6 +234,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::Uint8,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
                     None,
@@ -233,6 +246,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeHalf>(
                     device,
                     GpuVectorStorageElementType::Float16,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
                     None,
@@ -245,6 +259,7 @@ impl GpuVectorStorage {
                     Self::new_typed::<VectorElementTypeHalf>(
                         device,
                         GpuVectorStorageElementType::Float16,
+                        vector_storage.distance(),
                         vector_storage.total_vector_count(),
                         |id| {
                             VectorElementTypeHalf::slice_from_float_cow(Cow::Borrowed(
@@ -259,6 +274,7 @@ impl GpuVectorStorage {
                     Self::new_typed::<VectorElementType>(
                         device,
                         GpuVectorStorageElementType::Float32,
+                        vector_storage.distance(),
                         vector_storage.total_vector_count(),
                         |id| Cow::Borrowed(vector_storage.get_dense(id)),
                         None,
@@ -271,6 +287,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::Uint8,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
                     None,
@@ -282,6 +299,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeHalf>(
                     device,
                     GpuVectorStorageElementType::Float16,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
                     None,
@@ -294,6 +312,7 @@ impl GpuVectorStorage {
                     Self::new_typed::<VectorElementTypeHalf>(
                         device,
                         GpuVectorStorageElementType::Float16,
+                        vector_storage.distance(),
                         vector_storage.total_vector_count(),
                         |id| {
                             VectorElementTypeHalf::slice_from_float_cow(Cow::Borrowed(
@@ -308,6 +327,7 @@ impl GpuVectorStorage {
                     Self::new_typed::<VectorElementType>(
                         device,
                         GpuVectorStorageElementType::Float32,
+                        vector_storage.distance(),
                         vector_storage.total_vector_count(),
                         |id| Cow::Borrowed(vector_storage.get_dense(id)),
                         None,
@@ -320,6 +340,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeByte>(
                     device,
                     GpuVectorStorageElementType::Uint8,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
                     None,
@@ -331,6 +352,7 @@ impl GpuVectorStorage {
                 Self::new_typed::<VectorElementTypeHalf>(
                     device,
                     GpuVectorStorageElementType::Float16,
+                    vector_storage.distance(),
                     vector_storage.total_vector_count(),
                     |id| Cow::Borrowed(vector_storage.get_dense(id)),
                     None,
@@ -358,6 +380,7 @@ impl GpuVectorStorage {
     fn new_typed<'a, TElement: PrimitiveVectorElement>(
         device: Arc<gpu::Device>,
         element_type: GpuVectorStorageElementType,
+        distance: Distance,
         count: usize,
         get_vector: impl Fn(PointOffsetType) -> Cow<'a, [TElement]>,
         get_sq_offset: Option<Box<dyn Fn(PointOffsetType) -> f32 + 'a>>,
@@ -527,6 +550,7 @@ impl GpuVectorStorage {
             dim: capacity,
             count,
             element_type,
+            distance,
             sq_multiplier,
             sq_diff,
         })
@@ -660,6 +684,7 @@ mod tests {
         let shader = ShaderBuilder::new(device.clone())
             .with_shader_code(include_str!("shaders/tests/test_vector_storage.comp"))
             .with_element_type(gpu_vector_storage.element_type)
+            .with_distance(gpu_vector_storage.distance)
             .with_sq_multiplier(gpu_vector_storage.sq_multiplier)
             .with_sq_diff(gpu_vector_storage.sq_diff)
             .with_dim(gpu_vector_storage.dim)
@@ -808,6 +833,7 @@ mod tests {
         let shader = ShaderBuilder::new(device.clone())
             .with_shader_code(include_str!("shaders/tests/test_vector_storage.comp"))
             .with_element_type(gpu_vector_storage.element_type)
+            .with_distance(gpu_vector_storage.distance)
             .with_sq_multiplier(gpu_vector_storage.sq_multiplier)
             .with_sq_diff(gpu_vector_storage.sq_diff)
             .with_dim(gpu_vector_storage.dim)
@@ -941,6 +967,7 @@ mod tests {
         let shader = ShaderBuilder::new(device.clone())
             .with_shader_code(include_str!("shaders/tests/test_vector_storage.comp"))
             .with_element_type(gpu_vector_storage.element_type)
+            .with_distance(gpu_vector_storage.distance)
             .with_sq_multiplier(gpu_vector_storage.sq_multiplier)
             .with_sq_diff(gpu_vector_storage.sq_diff)
             .with_dim(gpu_vector_storage.dim)
