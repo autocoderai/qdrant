@@ -12,7 +12,7 @@ use crate::vector_storage::quantized::quantized_vectors::{
 };
 use crate::vector_storage::{DenseVectorStorage, VectorStorage, VectorStorageEnum};
 
-pub const ALIGNMENT: usize = 32 * 4;
+pub const ELEMENTS_PER_SUBGROUP: usize = 4;
 pub const UPLOAD_CHUNK_SIZE: usize = 64 * 1024 * 1024;
 pub const STORAGES_COUNT: usize = 4;
 
@@ -391,7 +391,7 @@ impl GpuVectorStorage {
 
         let dim = get_vector(0).len();
 
-        let capacity = Self::get_capacity(dim);
+        let capacity = Self::get_capacity(&device, dim);
         let upload_points_count = UPLOAD_CHUNK_SIZE / (capacity * std::mem::size_of::<TElement>());
 
         let points_in_storage_count = Self::get_points_in_storage_count(count);
@@ -556,8 +556,12 @@ impl GpuVectorStorage {
         })
     }
 
-    pub fn get_capacity(dim: usize) -> usize {
-        dim + (ALIGNMENT - dim % ALIGNMENT) % ALIGNMENT
+    pub fn get_capacity(
+        device: &Arc<gpu::Device>,
+        dim: usize,
+    ) -> usize {
+        let alignment = device.subgroup_size * ELEMENTS_PER_SUBGROUP;
+        dim + (alignment - dim % alignment) % alignment
     }
 
     pub fn get_points_in_storage_count(num_vectors: usize) -> usize {
