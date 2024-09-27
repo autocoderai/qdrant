@@ -115,9 +115,7 @@ impl Raft for RaftService {
         // `add_peer_to_known` is used to add new peers to the cluster, and so `first_peer_id` (and
         // its fake URI) would be removed from new peer's state shortly, while it will be synchronizing
         // and applying past Raft log.
-        addresses
-            .entry(first_peer_id)
-            .or_insert_with(|| Uri::default());
+        addresses.entry(first_peer_id).or_insert_with(Uri::default);
 
         Ok(Response::new(AllPeers {
             all_peers: addresses
